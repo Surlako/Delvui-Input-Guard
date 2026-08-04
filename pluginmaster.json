@@ -1,0 +1,24 @@
+[
+  {
+    "Author": "Surlako",
+    "Name": "DelvUI Input Guard",
+    "Punchline": "Stops DelvUI from reacting through overlapping plugin windows.",
+    "Description": "Makes DelvUI HUD elements ignore hover, clicks, targeting, context menus, and other mouse reactions whenever an interactive ImGui plugin window is under the cursor. DelvUI files are not modified. Use /duiguard for settings.",
+    "InternalName": "DelvUIInputGuard",
+    "AssemblyVersion": "0.1.0.0",
+    "RepoUrl": "https://github.com/Surlako/Delvui-Input-Guard",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "Tags": [
+      "delvui",
+      "input",
+      "clickthrough",
+      "ui"
+    ],
+    "DownloadLinkInstall": "https://github.com/Surlako/Delvui-Input-Guard/releases/latest/download/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/Surlako/Delvui-Input-Guard/releases/latest/download/latest.zip",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "LastUpdate": "1785802070"
+  }
+]
