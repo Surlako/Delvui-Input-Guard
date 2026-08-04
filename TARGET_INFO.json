@@ -1,0 +1,7 @@
+{
+  "TargetAssembly": "DelvUI.dll",
+  "TargetAssemblyVersion": "2.7.0.1",
+  "TargetSha256": "76f54ccc858d9dc62e24fd2d1fea6628db970c906a3a8e2e9f00c11f900579eb",
+  "DalamudApiLevel": 15,
+  "Notes": "The target DLL was used only for compatibility analysis. DelvUI.dll is not redistributed in this repository."
+}
