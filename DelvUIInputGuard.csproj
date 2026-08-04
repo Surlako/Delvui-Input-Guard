@@ -1,11 +1,16 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.1.1.0</Version>
+    <Version>0.2.0.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- Obsolete v0.1 patching implementation retained in old repositories but
+       explicitly excluded so browser-based updates do not require deletions. -->
   <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+    <Compile Remove="DelvUiPatchManager.cs" />
+    <Compile Remove="GuardState.cs" />
+    <Compile Remove="MouseQueryWrappers.cs" />
+    <Compile Remove="WindowHoverTracker.cs" />
   </ItemGroup>
 </Project>

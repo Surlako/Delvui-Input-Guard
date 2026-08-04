@@ -1,54 +1,38 @@
 # DelvUI Input Guard
 
-A separate Dalamud companion plugin that prevents DelvUI HUD elements from reacting through overlapping interactive plugin windows such as Penumbra, QoLBar, Glamourer, or Dalamud settings.
+A Dalamud companion plugin that prevents DelvUI HUD elements from reacting to mouse input through overlapping plugin windows.
 
-## Behavior
+## What changed in 0.2
 
-When the cursor is over another interactive ImGui window, DelvUI HUD mouse queries are suppressed. The tracker keeps the previous frame as a fallback so it works regardless of plugin draw order. DelvUI remains visible, but underlying HUD elements do not:
+Versions 0.1.x attempted to patch DelvUI input checks. That approach was ineffective because DelvUI performs input handling through its own clipping/input pipeline.
 
-- mouseover-target actors;
-- change targets on left click;
-- open context menus on right click;
-- show hover reactions or tooltips;
-- begin mouse-driven drag interaction.
+Version 0.2 uses DelvUI's built-in third-party clipping integration. It publishes interactive ImGui window rectangles through the shared `DelvUI.ClipRects` dictionary. DelvUI then rejects its own unit-frame mouse handling inside those rectangles.
 
-When the cursor leaves the overlapping window, DelvUI immediately works normally again.
+## Behaviour
 
-The plugin does not edit, replace, or redistribute DelvUI files. All compatibility changes are applied in memory and are removed when this plugin unloads.
+- Penumbra or another normal plugin window over a DelvUI unit frame: DelvUI does not react underneath it.
+- QoLBar category popup over a DelvUI unit frame: DelvUI does not react underneath it.
+- The DelvUI HUD remains visible.
+- No DelvUI files are edited and no DelvUI methods are patched.
+- Settings persist across restarts.
+
+## Required DelvUI settings
+
+DelvUI's **Window Clipping** must be enabled, and its option allowing **third-party plugin windows** to be clipped must also be enabled. Both are normally enabled by default. Open `/dig` to see whether the plugin can read their runtime state.
 
 ## Commands
 
-- `/duiguard` — open settings
-- `/dig` — short alias
-- `/duiguard on`
-- `/duiguard off`
-- `/duiguard toggle`
+```text
+/dig
+/duiguard
+/dig on
+/dig off
+/dig toggle
+```
 
 ## Compatibility
 
-The initial compatibility target is DelvUI `2.7.0.1` and Dalamud API level 15. The plugin locates DelvUI dynamically and patches HUD-element mouse-query calls by reflection, so minor DelvUI changes may continue working. If DelvUI changes its internal HUD structure, the settings window will show that no compatible methods were found instead of patching blindly.
+- Targeted against DelvUI 2.7.0.1
+- Dalamud API 15
 
-## Build
-
-Run the included GitHub Actions workflow:
-
-1. Open **Actions**.
-2. Select **Build and publish plugin**.
-3. Choose **Run workflow** on `main`.
-4. Wait for the green checkmark.
-
-The workflow creates a release containing `latest.zip` and writes `pluginmaster.json` to the repository root.
-
-## Custom repository URL
-
-After the first successful build:
-
-```text
-https://raw.githubusercontent.com/YOUR_GITHUB_NAME/YOUR_REPOSITORY/main/pluginmaster.json
-```
-
-Add that URL under `/xlsettings` → **Experimental** → **Custom Plugin Repositories**.
-
-## Technical note
-
-The plugin reads DelvUI's installed version through Dalamud, identifies the live DelvUI assembly through Dalamud's assembly ownership API, and uses Harmony to replace runtime mouse-query calls with guarded wrappers. DelvUI configuration classes are excluded from patching. A native `igBegin`/`igEnd` tracker identifies overlapping interactive ImGui windows without relying on the global `WantCaptureMouse` flag.
+The plugin uses the public Dalamud data-share API and DelvUI's native `DelvUI.ClipRects` contract.

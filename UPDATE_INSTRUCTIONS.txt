@@ -1,27 +1,31 @@
-DelvUI Input Guard 0.1.1.0 update
+DelvUI Input Guard 0.2.0.0 update
 
-This update fixes:
-- DelvUI version/runtime detection
-- DelvUI mouse reactions through overlapping ImGui windows
-- incompatibility caused by relying on an outdated HudElement base type
-- false/ambiguous detection caused by ImGui WantCaptureMouse
+This is a full implementation change. Versions 0.1.x tried to patch DelvUI's
+input checks and did not reliably block unit-frame input.
+
+Version 0.2 publishes plugin-window rectangles through DelvUI's native
+DelvUI.ClipRects third-party clipping data share.
 
 UPDATE STEPS
 
 1. Extract this ZIP.
-2. Open your GitHub repository:
+2. Open:
    https://github.com/Surlako/Delvui-Input-Guard
 3. Choose Add file -> Upload files.
-4. Upload all seven project files from this ZIP to the repository root.
-5. Commit the replacements.
+4. Upload every project file from this ZIP to the repository root.
+5. Commit the replacements/additions.
 6. Open Actions -> Build and publish plugin -> Run workflow.
-7. Wait for the green checkmark and confirm release v0.1.1.0 exists.
+7. Wait for the green checkmark and confirm release v0.2.0.0 exists.
 8. Open /xlplugins in FFXIV and update DelvUI Input Guard.
 9. Reload the plugin or restart the game.
-10. Open /dig and verify:
-    - DelvUI installed: Yes
-    - DelvUI loaded: Yes
-    - DelvUI runtime patches attached: Yes
-    - Window overlap tracker ready: Yes
+10. Open /dig.
 
-The .github workflow does not need to be uploaded again.
+IMPORTANT DELVUI SETTINGS
+
+In DelvUI settings, Window Clipping must be enabled and the option that allows
+third-party plugin windows to be clipped must also be enabled. /dig attempts
+to show both states.
+
+The old v0.1 source files can remain in the repository. The new project file
+explicitly excludes them from compilation, so browser-based updating does not
+require deleting files.
