@@ -4,7 +4,7 @@ A separate Dalamud companion plugin that prevents DelvUI HUD elements from react
 
 ## Behavior
 
-When an interactive ImGui window owns the mouse at the cursor position, DelvUI HUD mouse queries are suppressed for that frame. DelvUI remains visible, but underlying HUD elements do not:
+When the cursor is over another interactive ImGui window, DelvUI HUD mouse queries are suppressed. The tracker keeps the previous frame as a fallback so it works regardless of plugin draw order. DelvUI remains visible, but underlying HUD elements do not:
 
 - mouseover-target actors;
 - change targets on left click;
@@ -51,4 +51,4 @@ Add that URL under `/xlsettings` → **Experimental** → **Custom Plugin Reposi
 
 ## Technical note
 
-The plugin uses Harmony to replace DelvUI HUD calls to relevant Dear ImGui mouse-query methods with guarded wrappers. Only methods declared by classes derived from DelvUI's `HudElement` are considered; DelvUI's own configuration windows are not patched.
+The plugin reads DelvUI's installed version through Dalamud, identifies the live DelvUI assembly through Dalamud's assembly ownership API, and uses Harmony to replace runtime mouse-query calls with guarded wrappers. DelvUI configuration classes are excluded from patching. A native `igBegin`/`igEnd` tracker identifies overlapping interactive ImGui windows without relying on the global `WantCaptureMouse` flag.

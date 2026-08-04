@@ -12,24 +12,25 @@ namespace DelvUIInputGuard;
 internal sealed class DelvUiPatchManager : IDisposable
 {
     private const string HarmonyId = "Surlako.DelvUIInputGuard";
-    private static readonly Dictionary<MethodKey, MethodInfo> ReplacementMethods = BuildReplacementMethods();
+    private static readonly Dictionary<MethodSignature, MethodInfo> ReplacementMethods = BuildReplacementMethods();
     private static readonly OpCode[] OneByteOpCodes = new OpCode[0x100];
     private static readonly OpCode[] TwoByteOpCodes = new OpCode[0x100];
 
     private readonly Harmony harmony = new(HarmonyId);
     private readonly object syncRoot = new();
+    private readonly List<string> patchedMethods = new();
 
     private Assembly? delvUiAssembly;
     private DateTime nextAttachAttemptUtc = DateTime.MinValue;
     private bool disposed;
 
+    public bool IsInstalled { get; private set; }
+    public bool IsLoaded { get; private set; }
     public bool IsAttached => delvUiAssembly is not null;
     public string DetectedVersion { get; private set; } = "Not detected";
     public int PatchedMethodCount { get; private set; }
     public string LastError { get; private set; } = string.Empty;
     public IReadOnlyList<string> PatchedMethods => patchedMethods;
-
-    private readonly List<string> patchedMethods = new();
 
     static DelvUiPatchManager()
     {
@@ -53,7 +54,12 @@ internal sealed class DelvUiPatchManager : IDisposable
 
     public void TryAttach(bool force = false)
     {
-        if (disposed || IsAttached)
+        if (disposed)
+            return;
+
+        RefreshPluginStatus();
+
+        if (IsAttached)
             return;
 
         if (!force && DateTime.UtcNow < nextAttachAttemptUtc)
@@ -63,15 +69,67 @@ internal sealed class DelvUiPatchManager : IDisposable
 
         var assembly = AppDomain.CurrentDomain
             .GetAssemblies()
-            .FirstOrDefault(candidate => string.Equals(candidate.GetName().Name, "DelvUI", StringComparison.Ordinal));
+            .FirstOrDefault(IsDelvUiAssembly);
 
         if (assembly is null)
         {
-            LastError = "Waiting for DelvUI to load.";
+            LastError = IsInstalled
+                ? "DelvUI is installed, but its runtime assembly is not loaded yet."
+                : "Waiting for DelvUI to be installed and loaded.";
             return;
         }
 
         Attach(assembly);
+    }
+
+    private void RefreshPluginStatus()
+    {
+        try
+        {
+            var plugin = Plugin.PluginInterface.InstalledPlugins.FirstOrDefault(candidate =>
+                string.Equals(candidate.InternalName, "DelvUI", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(candidate.Name, "DelvUI", StringComparison.OrdinalIgnoreCase));
+
+            IsInstalled = plugin is not null;
+            IsLoaded = plugin?.IsLoaded == true;
+            if (plugin is not null)
+                DetectedVersion = plugin.Version.ToString();
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Verbose(ex, "Could not read DelvUI from Dalamud's installed-plugin list.");
+        }
+    }
+
+    private bool IsDelvUiAssembly(Assembly assembly)
+    {
+        try
+        {
+            var plugin = Plugin.PluginInterface.GetPlugin(assembly);
+            if (plugin is not null &&
+                (string.Equals(plugin.InternalName, "DelvUI", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(plugin.Name, "DelvUI", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+            // Fall through to assembly/type-name checks.
+        }
+
+        if (string.Equals(assembly.GetName().Name, "DelvUI", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        try
+        {
+            return GetLoadableTypes(assembly).Any(type =>
+                type.FullName?.StartsWith("DelvUI.", StringComparison.Ordinal) == true);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void OnAssemblyLoad(object? sender, AssemblyLoadEventArgs args)
@@ -79,7 +137,7 @@ internal sealed class DelvUiPatchManager : IDisposable
         if (disposed || IsAttached)
             return;
 
-        if (string.Equals(args.LoadedAssembly.GetName().Name, "DelvUI", StringComparison.Ordinal))
+        if (IsDelvUiAssembly(args.LoadedAssembly))
             Attach(args.LoadedAssembly);
     }
 
@@ -95,13 +153,9 @@ internal sealed class DelvUiPatchManager : IDisposable
                 LastError = string.Empty;
                 patchedMethods.Clear();
 
-                var hudElementType = assembly.GetType("DelvUI.Interface.HudElement", throwOnError: false);
-                if (hudElementType is null)
-                    throw new InvalidOperationException("DelvUI.Interface.HudElement was not found.");
-
                 var transpiler = new HarmonyMethod(typeof(DelvUiPatchManager), nameof(TranspileMouseQueries));
                 var methods = GetLoadableTypes(assembly)
-                    .Where(type => type is not null && IsHudOwnedType(type, hudElementType))
+                    .Where(IsRuntimeInteractionType)
                     .SelectMany(GetPatchableMethods)
                     .Distinct(MethodBaseComparer.Instance)
                     .ToArray();
@@ -123,13 +177,15 @@ internal sealed class DelvUiPatchManager : IDisposable
                 }
 
                 if (patchedMethods.Count == 0)
-                    throw new InvalidOperationException("No compatible DelvUI HUD mouse-query methods were found.");
+                    throw new InvalidOperationException("DelvUI was found, but no compatible mouse-query methods were found.");
 
                 delvUiAssembly = assembly;
-                DetectedVersion = assembly.GetName().Version?.ToString() ?? "Unknown";
+                IsInstalled = true;
+                IsLoaded = true;
+                DetectedVersion = assembly.GetName().Version?.ToString() ?? DetectedVersion;
                 PatchedMethodCount = patchedMethods.Count;
                 Plugin.Log.Information(
-                    "DelvUI Input Guard attached to DelvUI {Version}; patched {Count} HUD methods.",
+                    "DelvUI Input Guard attached to DelvUI {Version}; patched {Count} methods.",
                     DetectedVersion,
                     PatchedMethodCount
                 );
@@ -151,20 +207,19 @@ internal sealed class DelvUiPatchManager : IDisposable
     }
 
 
-    private static bool IsHudOwnedType(Type type, Type hudElementType)
+    private static bool IsRuntimeInteractionType(Type type)
     {
-        for (Type? current = type; current is not null; current = current.DeclaringType)
-        {
-            if (hudElementType.IsAssignableFrom(current))
-                return true;
-        }
+        var typeNamespace = type.Namespace ?? string.Empty;
 
-        return false;
+        // DelvUI configuration windows are ordinary ImGui interfaces and must
+        // remain interactive. The guard only patches runtime HUD/input code.
+        return !typeNamespace.StartsWith("DelvUI.Config", StringComparison.Ordinal);
     }
 
     private static IEnumerable<MethodBase> GetPatchableMethods(Type type)
     {
-        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public |
+                                   BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
         foreach (var method in type.GetMethods(flags))
         {
@@ -219,8 +274,11 @@ internal sealed class DelvUiPatchManager : IDisposable
                         method.IsGenericMethod ? method.GetGenericArguments() : null
                     );
 
-                    if (resolved is MethodInfo resolvedMethod && ReplacementMethods.ContainsKey(MethodKey.From(resolvedMethod)))
+                    if (resolved is MethodInfo resolvedMethod &&
+                        ReplacementMethods.ContainsKey(MethodSignature.From(resolvedMethod)))
+                    {
                         return true;
+                    }
                 }
                 catch
                 {
@@ -282,7 +340,7 @@ internal sealed class DelvUiPatchManager : IDisposable
         {
             if ((instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt) &&
                 instruction.operand is MethodInfo calledMethod &&
-                ReplacementMethods.TryGetValue(MethodKey.From(calledMethod), out var replacement))
+                ReplacementMethods.TryGetValue(MethodSignature.From(calledMethod), out var replacement))
             {
                 instruction.opcode = OpCodes.Call;
                 instruction.operand = replacement;
@@ -292,9 +350,9 @@ internal sealed class DelvUiPatchManager : IDisposable
         }
     }
 
-    private static Dictionary<MethodKey, MethodInfo> BuildReplacementMethods()
+    private static Dictionary<MethodSignature, MethodInfo> BuildReplacementMethods()
     {
-        var map = new Dictionary<MethodKey, MethodInfo>();
+        var map = new Dictionary<MethodSignature, MethodInfo>();
 
         AddReplacement(map, nameof(ImGui.IsMouseHoveringRect), new[] { typeof(Vector2), typeof(Vector2) }, nameof(MouseQueryWrappers.IsMouseHoveringRect2));
         AddReplacement(map, nameof(ImGui.IsMouseHoveringRect), new[] { typeof(Vector2), typeof(Vector2), typeof(bool) }, nameof(MouseQueryWrappers.IsMouseHoveringRect3));
@@ -317,11 +375,10 @@ internal sealed class DelvUiPatchManager : IDisposable
     }
 
     private static void AddReplacement(
-        IDictionary<MethodKey, MethodInfo> map,
+        IDictionary<MethodSignature, MethodInfo> map,
         string targetName,
         Type[] targetParameters,
-        string wrapperName
-    )
+        string wrapperName)
     {
         var target = typeof(ImGui).GetMethod(
             targetName,
@@ -333,7 +390,7 @@ internal sealed class DelvUiPatchManager : IDisposable
 
         var wrapper = typeof(MouseQueryWrappers).GetMethod(wrapperName, BindingFlags.Public | BindingFlags.Static);
         if (target is not null && wrapper is not null)
-            map[MethodKey.From(target)] = wrapper;
+            map[MethodSignature.From(target)] = wrapper;
     }
 
     public void Dispose()
@@ -358,9 +415,14 @@ internal sealed class DelvUiPatchManager : IDisposable
         PatchedMethodCount = 0;
     }
 
-    private readonly record struct MethodKey(Module Module, int MetadataToken)
+    private readonly record struct MethodSignature(string DeclaringType, string Name, string Parameters)
     {
-        public static MethodKey From(MethodInfo method) => new(method.Module, method.MetadataToken);
+        public static MethodSignature From(MethodInfo method)
+        {
+            var declaringType = method.DeclaringType?.FullName ?? string.Empty;
+            var parameters = string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.FullName));
+            return new MethodSignature(declaringType, method.Name, parameters);
+        }
     }
 
     private sealed class MethodBaseComparer : IEqualityComparer<MethodBase>

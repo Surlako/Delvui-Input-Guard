@@ -15,9 +15,11 @@ public sealed class Plugin : IDalamudPlugin
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
+    [PluginService] internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly Configuration configuration;
+    private readonly WindowHoverTracker windowHoverTracker;
     private readonly DelvUiPatchManager patchManager;
 
     private bool settingsOpen;
@@ -26,17 +28,20 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+
+        windowHoverTracker = new WindowHoverTracker();
+        windowHoverTracker.Initialize();
+
         GuardState.Configuration = configuration;
+        GuardState.WindowTracker = windowHoverTracker;
 
         patchManager = new DelvUiPatchManager();
         patchManager.TryAttach(force: true);
 
-        var commandInfo = new CommandInfo(OnCommand)
+        CommandManager.AddHandler(MainCommand, new CommandInfo(OnCommand)
         {
             HelpMessage = "Open DelvUI Input Guard settings."
-        };
-
-        CommandManager.AddHandler(MainCommand, commandInfo);
+        });
         CommandManager.AddHandler(ShortCommand, new CommandInfo(OnCommand)
         {
             HelpMessage = "Open DelvUI Input Guard settings."
@@ -54,7 +59,9 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(ShortCommand);
 
         patchManager.Dispose();
+        windowHoverTracker.Dispose();
         GuardState.Configuration = null;
+        GuardState.WindowTracker = null;
     }
 
     private void OnCommand(string command, string arguments)
@@ -93,7 +100,11 @@ public sealed class Plugin : IDalamudPlugin
         var currentGuardState = GuardState.ShouldBlock;
         if (configuration.LogStateChanges && previousGuardState != currentGuardState)
         {
-            Log.Debug("DelvUI Input Guard active under cursor: {State}", currentGuardState);
+            Log.Debug(
+                "DelvUI Input Guard active under cursor: {State}; hovered window: {Window}",
+                currentGuardState,
+                windowHoverTracker.LastHoveredWindow
+            );
             previousGuardState = currentGuardState;
         }
 
@@ -103,7 +114,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private void DrawSettings()
     {
-        ImGui.SetNextWindowSize(new Vector2(560f, 420f), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(590f, 470f), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("DelvUI Input Guard", ref settingsOpen))
         {
             ImGui.End();
@@ -120,23 +131,33 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         ImGui.TextWrapped(
-            "When the cursor is over an interactive Dalamud/ImGui window, DelvUI HUD elements underneath it will ignore mouse hover, targeting, clicks, context menus, and drag input. DelvUI stays visible."
+            "When the cursor is over another interactive Dalamud/ImGui window, DelvUI HUD elements underneath it ignore hover, targeting, clicks, context menus, and drag input. DelvUI remains visible."
         );
 
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.TextUnformatted("Status");
 
-        DrawStatusLine("DelvUI detected", patchManager.IsAttached);
+        DrawStatusLine("DelvUI installed", patchManager.IsInstalled);
+        DrawStatusLine("DelvUI loaded", patchManager.IsLoaded);
         ImGui.TextUnformatted($"DelvUI version: {patchManager.DetectedVersion}");
-        ImGui.TextUnformatted($"Patched HUD methods: {patchManager.PatchedMethodCount}");
-        DrawStatusLine("Another ImGui window currently captures the mouse", ImGui.GetIO().WantCaptureMouse);
+        DrawStatusLine("DelvUI runtime patches attached", patchManager.IsAttached);
+        ImGui.TextUnformatted($"Patched methods: {patchManager.PatchedMethodCount}");
+        DrawStatusLine("Window overlap tracker ready", windowHoverTracker.IsInitialized);
+        DrawStatusLine("Another interactive ImGui window is under the cursor", windowHoverTracker.IsOtherInteractiveWindowHovered);
+        ImGui.TextUnformatted($"Last overlapping window: {windowHoverTracker.LastHoveredWindow}");
         DrawStatusLine("DelvUI input currently blocked", GuardState.ShouldBlock);
 
         if (!string.IsNullOrWhiteSpace(patchManager.LastError))
         {
             ImGui.Spacing();
             ImGui.TextColored(new Vector4(1f, 0.55f, 0.25f, 1f), patchManager.LastError);
+        }
+
+        if (!string.IsNullOrWhiteSpace(windowHoverTracker.LastError))
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(new Vector4(1f, 0.55f, 0.25f, 1f), windowHoverTracker.LastError);
         }
 
         ImGui.Spacing();

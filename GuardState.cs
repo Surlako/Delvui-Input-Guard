@@ -1,10 +1,9 @@
-using Dalamud.Bindings.ImGui;
-
 namespace DelvUIInputGuard;
 
 internal static class GuardState
 {
     internal static Configuration? Configuration { get; set; }
+    internal static WindowHoverTracker? WindowTracker { get; set; }
 
     internal static bool ShouldBlock
     {
@@ -12,7 +11,8 @@ internal static class GuardState
         {
             try
             {
-                return Configuration?.Enabled == true && ImGui.GetIO().WantCaptureMouse;
+                return Configuration?.Enabled == true &&
+                       WindowTracker?.IsOtherInteractiveWindowHovered == true;
             }
             catch
             {
